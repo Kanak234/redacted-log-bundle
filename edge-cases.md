@@ -1,8 +1,11 @@
 # Tested edge cases
 - empty files
-- overlapping and invalid spans
-- Unicode joins
-- key rotation
-- adjacent text
-- repeated secrets
-- escaped HTML
+- overlapping and invalid spans (union replacement, out-of-range spans raise)
+- Unicode joins and key rotation (same value, same key -> same token; new key -> new token)
+- repeated secrets (every literal occurrence masked)
+- escaped HTML (`<script>` never reaches preview.html raw)
+- mixed-field log lines: timestamp kept, `user=<email>` and bare `<email>` get the same token
+- spaCy tagging `ABCDE1234F aadhaar=2345` as a PERSON (rejected, so PAN and Aadhaar keep exact tokens)
+- internal mail suffixes (`.invalid`, `.local`) vs public TLDs
+- Gitleaks not on PATH (found next to the interpreter)
+- existing output directory and wrong-length key (refused)

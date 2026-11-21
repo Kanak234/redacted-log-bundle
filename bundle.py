@@ -30,7 +30,31 @@ def india_recognizers():
     ]
 
 
+# Entity types the bundle masks. Stock Presidio also reports DATE_TIME, URL,
+# ORGANIZATION, LOCATION, UUID and several US-only number formats. In log files
+# those hit timestamps, hostnames and ten-digit Indian phone numbers, and their
+# wide spans swallow neighbouring fields, which breaks exact-value joins.
+# So the bundle keeps only identifiers that point at a person or an account.
+BUNDLE_ENTITIES = [
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "PERSON",
+    "IP_ADDRESS",
+    "MAC_ADDRESS",
+    "CREDIT_CARD",
+    "IBAN_CODE",
+    "CRYPTO",
+    *FORMATS,  # AADHAAR_FORMAT, PAN_FORMAT, INDIAN_PHONE (added below)
+]
+
+# Log lines use key=value and key: value. Presidio's e-mail regex accepts "=" in
+# the local part, so "user=a@b.com" would be hashed as one value and would not
+# join with a bare "a@b.com" elsewhere. Trim everything up to the last separator.
+KEY_PREFIX = re.compile(r"^.*[=:]")
+
+
 def pii(text, india=True):
+    """Yield (start, end, label) spans. india=False means stock Presidio (benchmark baseline)."""
     from presidio_analyzer import AnalyzerEngine
     from presidio_analyzer.nlp_engine import NlpEngineProvider
 
@@ -42,7 +66,9 @@ def pii(text, india=True):
         }
     ).create_engine()
     analyzer = AnalyzerEngine(nlp_engine=engine)
+    entities = None  # None = every entity Presidio knows (the stock baseline)
     if india:
+        entities = BUNDLE_ENTITIES
         for recognizer in india_recognizers():
             analyzer.registry.add_recognizer(recognizer)
         from presidio_analyzer import Pattern, PatternRecognizer
@@ -54,10 +80,44 @@ def pii(text, india=True):
         )
     offset = 0
     for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
         # A recognizer can include trailing whitespace in a finding. Keep record delimiters intact.
-        for hit in analyzer.analyze(text=line.rstrip("\r\n"), language="en"):
-            yield offset + hit.start, offset + hit.end, hit.entity_type
+        for hit in analyzer.analyze(text=body, language="en", entities=entities):
+            start, end = hit.start, hit.end
+            if india and hit.entity_type == "EMAIL_ADDRESS":
+                # Drop a "key=" or "key:" prefix so the hash covers the address alone.
+                cut = KEY_PREFIX.match(body[start:end].split("@")[0])
+                start += cut.end() if cut else 0
+            if (
+                india
+                and hit.entity_type == "PERSON"
+                and re.search(r"[\d=:@/_]", body[start:end])
+            ):
+                # spaCy NER sometimes tags "ABCDE1234F aadhaar=2345" as a PERSON.
+                # Real names hold no digits or key=value syntax; such a span would
+                # swallow the neighbouring field and break its join, so skip it.
+                continue
+            if start < end:
+                yield offset + start, offset + end, hit.entity_type
         offset += len(line)  # Convert per-line indices to file coordinates.
+
+
+def gitleaks_path():
+    """Find the scanner setup_project.py installed, even if the venv is not activated.
+
+    setup_project.py writes gitleaks into this interpreter's scripts folder
+    (.venv/bin or .venv\\Scripts). Calling ".venv/bin/python bundle.py" without
+    activating the venv leaves that folder off PATH, so look there first.
+    """
+    import shutil
+    import sysconfig
+
+    name = "gitleaks.exe" if os.name == "nt" else "gitleaks"
+    local = Path(sysconfig.get_path("scripts")) / name
+    found = str(local) if local.exists() else shutil.which("gitleaks")
+    if not found:
+        raise RuntimeError("Gitleaks not found. Run python setup_project.py first.")
+    return found
 
 
 def leaks(text):
@@ -67,7 +127,7 @@ def leaks(text):
         report = root / "findings.json"
         run = subprocess.run(
             [
-                "gitleaks",
+                gitleaks_path(),
                 "stdin",
                 "--report-format",
                 "json",
