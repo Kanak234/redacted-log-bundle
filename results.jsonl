@@ -1,0 +1,3 @@
+{"detector": "Presidio", "recall": {"phone": 1.0, "Aadhaar": 0.8333333333333334, "PAN": 0.16666666666666666, "secret": 0.16666666666666666, "email": 0.0}, "false_redactions": 2, "preserved_pairs": 26, "total_pairs": 60}
+{"detector": "Gitleaks", "recall": {"phone": 0.0, "Aadhaar": 0.0, "PAN": 0.0, "secret": 1.0, "email": 0.0}, "false_redactions": 0, "preserved_pairs": 12, "total_pairs": 60}
+{"detector": "Bundle", "recall": {"phone": 1.0, "Aadhaar": 1.0, "PAN": 1.0, "secret": 1.0, "email": 1.0}, "false_redactions": 2, "preserved_pairs": 60, "total_pairs": 60}
